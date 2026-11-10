@@ -179,3 +179,40 @@ def to_dict(transcript: Transcript) -> dict:
             for segment in transcript.segments
         ],
     }
+
+
+def from_dict(data: dict) -> Transcript:
+    """Обратная сторона ``to_dict``: восстановление из манифеста.
+
+    Битая запись падает исключением, а не тащит мусор в пайплайн —
+    слой кеша ловит это и считает промахом.
+    """
+    segments = tuple(
+        Segment(
+            start=raw["start"],
+            end=raw["end"],
+            text=raw["text"],
+            words=tuple(
+                Word(
+                    start=word["start"],
+                    end=word["end"],
+                    text=word["text"],
+                    probability=word["probability"],
+                )
+                for word in raw["words"]
+            ),
+            avg_logprob=raw["avg_logprob"],
+            no_speech_prob=raw["no_speech_prob"],
+        )
+        for raw in data["segments"]
+    )
+    if not segments:
+        raise ValueError("запись транскрипта без сегментов")
+
+    return Transcript(
+        language=data["language"],
+        duration=data["duration"],
+        segments=segments,
+        dropped_segments=data["dropped_segments"],
+        duplicated_segments=data["duplicated_segments"],
+    )

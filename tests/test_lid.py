@@ -72,3 +72,22 @@ def test_clear_winner_is_confident(two_windows: None) -> None:
     result = lid.detect(model, np.zeros(100, np.float32))
 
     assert result.confident
+
+
+def test_dict_roundtrip_preserves_detection(two_windows: None) -> None:
+    """Восстановленный из кеша ответ LID неотличим от свежего."""
+    model = FakeModel([[("ru", 0.95), ("uk", 0.03), ("bg", 0.02)]])
+    result = lid.detect(model, np.zeros(100, np.float32))
+    restored = lid.from_dict(lid.to_dict(result))
+
+    assert restored.language == "ru"
+    assert restored.probability == pytest.approx(0.95)
+    assert restored.alternatives[0].code == "uk"
+    assert restored.windows == 2
+    assert restored.vad_threshold == 0.5
+    assert restored.confident
+
+
+def test_from_dict_rejects_garbage() -> None:
+    with pytest.raises((KeyError, TypeError)):
+        lid.from_dict({"language": "ru"})

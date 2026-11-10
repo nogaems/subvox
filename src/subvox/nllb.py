@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from subvox import paths
+
 DEFAULT_MODEL = "OpenNMT/nllb-200-distilled-1.3B-ct2-int8"
 
 MAX_INPUT_TOKENS = 200
@@ -59,7 +61,7 @@ def load(model_id: str = DEFAULT_MODEL, device: str = "auto") -> Engine:
 
     _preload_cuda()
 
-    path = snapshot_download(model_id)
+    path = snapshot_download(model_id, cache_dir=str(paths.models_dir()))
     tokenizer = tokenizers.Tokenizer.from_file(
         str(Path(path) / "tokenizer.json")
     )

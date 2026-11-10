@@ -12,14 +12,17 @@ dependencies = [
     "faster-whisper>=1.1",
     "ctranslate2>=4.5",
     "pysubs2>=1.7",
-    "sentencepiece>=0.2",
+    "tokenizers>=0.20",
     "huggingface-hub>=0.26",
 ]
 
 [project.optional-dependencies]
 gpu = [
-    "nvidia-cudnn-cu12>=9",
-    "nvidia-cublas-cu12>=12",
+    # Виндовых pip-колёс cuBLAS не существует: под Windows GPU требует
+    # установленного CUDA Toolkit. Эти пакеты — Linux-способ положить
+    # CUDA-библиотеки в venv.
+    "nvidia-cudnn-cu12>=9; sys_platform == 'linux'",
+    "nvidia-cublas-cu12>=12; sys_platform == 'linux'",
 ]
 dev = [
     "pytest>=8",

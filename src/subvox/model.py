@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 
+from subvox import paths
 from subvox.cuda import preload as _preload_cuda
 
 DEFAULT_WHISPER = "large-v3"
@@ -67,7 +68,12 @@ def load_whisper(
     errors: list[str] = []
     for dev, ctype in candidates:
         try:
-            model = WhisperModel(size, device=dev, compute_type=ctype)
+            model = WhisperModel(
+                size,
+                device=dev,
+                compute_type=ctype,
+                download_root=str(paths.models_dir()),
+            )
             _warmup(model, ctype)
         except Exception as exc:  # noqa: BLE001 — причин может быть много
             errors.append(f"{dev}/{ctype}: {exc}")

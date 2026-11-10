@@ -88,3 +88,45 @@ def detect(
         duration=len(audio) / sample_rate,
         vad_threshold=threshold,
     )
+
+
+def to_dict(detection: Detection) -> dict:
+    """Машинное представление для манифеста прогона."""
+    return {
+        "language": detection.language,
+        "name": detection.name,
+        "probability": round(detection.probability, 3),
+        "alternatives": [
+            {
+                "code": alt.code,
+                "name": alt.name,
+                "probability": round(alt.probability, 3),
+            }
+            for alt in detection.alternatives
+        ],
+        "windows": detection.windows,
+        "speech_seconds": round(detection.speech_seconds, 3),
+        "duration": round(detection.duration, 3),
+        "vad_threshold": detection.vad_threshold,
+    }
+
+
+def from_dict(data: dict) -> Detection:
+    """Обратная сторона ``to_dict``; битое — исключение, не мусор."""
+    return Detection(
+        language=data["language"],
+        name=data["name"],
+        probability=data["probability"],
+        alternatives=tuple(
+            LanguageScore(
+                code=alt["code"],
+                name=alt["name"],
+                probability=alt["probability"],
+            )
+            for alt in data["alternatives"]
+        ),
+        windows=data["windows"],
+        speech_seconds=data["speech_seconds"],
+        duration=data["duration"],
+        vad_threshold=data["vad_threshold"],
+    )

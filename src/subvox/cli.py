@@ -9,9 +9,9 @@ from typing import Annotated, Any
 import typer
 from rich.console import Console
 
-from subvox import __version__, asr, audio, langs, lid, nllb, sentences, subs, vad
+from subvox import __version__, asr, audio, langs, nllb, pipeline, sentences, subs, vad
 from subvox import cues as cues_mod
-from subvox.model import DEFAULT_WHISPER, ModelError, load_whisper
+from subvox.model import DEFAULT_WHISPER, ModelError
 
 app = typer.Typer(
     add_completion=False,
@@ -51,6 +51,26 @@ def _fail(exc: Exception) -> None:
     raise typer.Exit(1) from None
 
 
+def _gpu_notes(loaded: pipeline.Loaded | None, engine: nllb.Engine | None = None) -> None:
+    """Честно сказать, если GPU не поднялся — молчаливый откат запрещён."""
+    if loaded is not None and loaded.fallback_reason:
+        stderr.print(
+            f"[yellow]GPU не поднялся, работаю на {loaded.device}: "
+            f"{loaded.fallback_reason}[/yellow]"
+        )
+    if engine is not None and engine.fallback_reason:
+        stderr.print(
+            f"[yellow]переводчик на GPU не поднялся, работаю на {engine.device}: "
+            f"{engine.fallback_reason}[/yellow]"
+        )
+
+
+NoCache = Annotated[
+    bool,
+    typer.Option("--no-cache", help="Посчитать заново, не читая и не записывая кеш прогона."),
+]
+
+
 @app.command()
 def detect(
     video: Annotated[
@@ -67,79 +87,83 @@ def detect(
     windows: Annotated[
         int, typer.Option("--windows", "-w", help="Сколько окон речи анализировать.")
     ] = 6,
+    no_cache: NoCache = False,
     as_json: Annotated[bool, typer.Option("--json", help="Машинный вывод.")] = False,
 ) -> None:
     """Определить язык речи в видео и ничего больше не делать."""
     try:
-        info = audio.probe(video)
-        stream = info.stream(track)
-        samples = audio.extract(video, stream)
-        loaded = load_whisper(model, device)
-        result = lid.detect(loaded.model, samples, windows=windows)
+        stream = audio.probe(video).stream(track)
+        result = pipeline.detect_language(
+            video,
+            track=track,
+            model=model,
+            device=device,
+            windows=windows,
+            use_cache=not no_cache,
+        )
     except (audio.AudioError, vad.NoSpeech, ModelError, ValueError) as exc:
         _fail(exc)
 
-    if loaded.fallback_reason:
-        stderr.print(
-            f"[yellow]GPU не поднялся, работаю на {loaded.device}: "
-            f"{loaded.fallback_reason}[/yellow]"
-        )
+    detection = result.detection
+    _gpu_notes(result.loaded)
 
     if as_json:
         payload: dict[str, Any] = {
             "file": str(video),
-            "duration": round(result.duration, 2),
-            "speech_seconds": round(result.speech_seconds, 2),
-            "windows": result.windows,
-            "vad_threshold": result.vad_threshold,
-            "device": loaded.device,
-            "language": result.language,
-            "name": result.name,
-            "probability": round(result.probability, 4),
-            "confident": result.confident,
-            "translatable": langs.translatable(result.language),
+            "duration": round(detection.duration, 2),
+            "speech_seconds": round(detection.speech_seconds, 2),
+            "windows": detection.windows,
+            "vad_threshold": detection.vad_threshold,
+            "device": result.loaded.device if result.loaded else None,
+            "cached": result.cached,
+            "language": detection.language,
+            "name": detection.name,
+            "probability": round(detection.probability, 4),
+            "confident": detection.confident,
+            "translatable": langs.translatable(detection.language),
             "alternatives": [
                 {
                     "code": alt.code,
                     "name": alt.name,
                     "probability": round(alt.probability, 4),
                 }
-                for alt in result.alternatives
+                for alt in detection.alternatives
             ],
         }
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
+    cache_note = " [dim]· из кеша[/dim]" if result.cached else ""
     console.print(
-        f"[bold]{video.name}[/bold] · {_clock(result.duration)} · "
-        f"дорожка {stream.index} [dim]({stream.label})[/dim]"
+        f"[bold]{video.name}[/bold] · {_clock(detection.duration)} · "
+        f"дорожка {stream.index} [dim]({stream.label})[/dim]{cache_note}"
     )
     console.print()
     console.print(
-        f"  [bold]{result.name}[/bold] ({result.language})   "
-        f"[green]{result.probability:.2f}[/green]"
+        f"  [bold]{detection.name}[/bold] ({detection.language})   "
+        f"[green]{detection.probability:.2f}[/green]"
     )
-    if result.alternatives:
-        others = " · ".join(f"{alt.name} {alt.probability:.2f}" for alt in result.alternatives)
+    if detection.alternatives:
+        others = " · ".join(f"{alt.name} {alt.probability:.2f}" for alt in detection.alternatives)
         console.print(f"  [dim]{others}[/dim]")
     console.print(
-        f"  [dim]речь {_clock(result.speech_seconds)} из {_clock(result.duration)}, "
-        f"окон: {result.windows}[/dim]"
+        f"  [dim]речь {_clock(detection.speech_seconds)} из {_clock(detection.duration)}, "
+        f"окон: {detection.windows}[/dim]"
     )
 
-    if result.vad_threshold < vad.THRESHOLDS[0]:
+    if detection.vad_threshold < vad.THRESHOLDS[0]:
         console.print(
             f"  [yellow]речь поверх музыки или шума: VAD сработал только на пороге "
-            f"{result.vad_threshold}, результат может быть грубее обычного[/yellow]"
+            f"{detection.vad_threshold}, результат может быть грубее обычного[/yellow]"
         )
 
-    if not result.confident:
+    if not detection.confident:
         console.print(
             "  [yellow]уверенности мало: язык стоит задать вручную через --from[/yellow]"
         )
-    if not langs.translatable(result.language):
+    if not langs.translatable(detection.language):
         console.print(
-            f"  [yellow]{result.name} распознаётся, но перевести его нечем: "
+            f"  [yellow]{detection.name} распознаётся, но перевести его нечем: "
             "NLLB этот язык не поддерживает[/yellow]"
         )
 
@@ -163,25 +187,18 @@ def transcribe(
         Path | None,
         typer.Option("--out", help="Куда писать .srt. По умолчанию video.<язык>.srt."),
     ] = None,
+    no_cache: NoCache = False,
     as_json: Annotated[bool, typer.Option("--json", help="Машинный вывод.")] = False,
 ) -> None:
     """Распознать речь и записать черновой SRT на языке оригинала."""
     try:
-        info = audio.probe(video)
-        stream = info.stream(track)
-        samples = audio.extract(video, stream)
-        loaded = load_whisper(model, device)
-
-        if source is not None:
-            language = langs.require(source).code
-            _regions, _speech, vad_threshold = vad.speech_regions(samples)
-        else:
-            detection = lid.detect(loaded.model, samples)
-            language = detection.language
-            vad_threshold = detection.vad_threshold
-
-        transcript = asr.transcribe(
-            loaded.model, samples, language=language, vad_threshold=vad_threshold
+        prepared = pipeline.prepare(
+            video,
+            track=track,
+            source=source,
+            model=model,
+            device=device,
+            use_cache=not no_cache,
         )
     except (
         audio.AudioError,
@@ -193,11 +210,15 @@ def transcribe(
     ) as exc:
         _fail(exc)
 
-    destination = out or video.with_suffix(f".{language}.srt")
+    transcript = prepared.transcript
+    destination = out or video.with_suffix(f".{prepared.language}.srt")
+    _gpu_notes(prepared.loaded)
+
     if as_json:
         payload = asr.to_dict(transcript)
         payload["file"] = str(video)
-        payload["device"] = loaded.device
+        payload["device"] = prepared.loaded.device if prepared.loaded else None
+        payload["cached"] = prepared.transcript_cached
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
@@ -208,17 +229,19 @@ def transcribe(
         notes.append(f"отброшено пустых/тихих: {transcript.dropped_segments}")
     if transcript.duplicated_segments:
         notes.append(f"свернуто повторов: {transcript.duplicated_segments}")
-    notes.append(f"VAD {vad_threshold}")
+    notes.append(f"VAD {prepared.vad_threshold}")
+    if prepared.transcript_cached:
+        notes.append("из кеша")
 
     console.print(
         f"[bold]{video.name}[/bold] -> [bold]{destination.name}[/bold] "
         f"[dim](черновик)[/dim]"
     )
     console.print(
-        f"  {langs.name(language)} ({language}): {len(transcript.segments)} сегментов, "
-        f"{transcript.words} слов · {' · '.join(notes)}"
+        f"  {langs.name(prepared.language)} ({prepared.language}): "
+        f"{len(transcript.segments)} сегментов, {transcript.words} слов · {' · '.join(notes)}"
     )
-    if vad_threshold < vad.THRESHOLDS[0]:
+    if prepared.vad_threshold < vad.THRESHOLDS[0]:
         console.print(
             "  [yellow]речь поверх музыки или шума: таймкоды и текст могут быть грубее обычного[/yellow]"
         )
@@ -254,6 +277,7 @@ def run(
         bool,
         typer.Option("--draft", help="Дополнительно сохранить черновик на языке оригинала."),
     ] = False,
+    no_cache: NoCache = False,
 ) -> None:
     """Полный пайплайн: распознать, перевести, записать субтитры."""
     try:
@@ -263,36 +287,27 @@ def run(
                 f"на {target.name} ({target.code}) переводить нечем: NLLB его не поддерживает"
             )
 
-        info = audio.probe(video)
-        stream = info.stream(track)
-        samples = audio.extract(video, stream)
-        loaded = load_whisper(model, device)
-
-        if source is not None:
-            language = langs.require(source).code
-            if not langs.translatable(language):
-                raise langs.NoTranslation(
-                    f"{langs.name(language)} ({language}) распознаётся, но перевести его нечем"
-                )
-            _regions, _speech, vad_threshold = vad.speech_regions(samples)
-        else:
-            detection = lid.detect(loaded.model, samples)
-            language = detection.language
-            vad_threshold = detection.vad_threshold
-            if not langs.translatable(language):
-                raise langs.NoTranslation(
-                    f"{langs.name(language)} ({language}) распознаётся, но перевести его нечем"
-                )
-
-        transcript = asr.transcribe(
-            loaded.model, samples, language=language, vad_threshold=vad_threshold
+        prepared = pipeline.prepare(
+            video,
+            track=track,
+            source=source,
+            model=model,
+            device=device,
+            use_cache=not no_cache,
+            require_translatable=True,
         )
-        parts = sentences.sentences(transcript.segments)
+        language = prepared.language
+        parts = sentences.sentences(prepared.transcript.segments)
 
+        engine: nllb.Engine | None = None
         if target.code == language:
             translated = [part.text for part in parts]
         else:
-            engine = nllb.load(device=loaded.device if loaded.device != "cpu" else "auto")
+            engine_device = prepared.loaded.device if prepared.loaded else device
+            if engine_device == "cpu" and device != "cpu":
+                # Whisper упал на cpu после фолбэка — дать переводчику свой шанс.
+                engine_device = "auto"
+            engine = nllb.load(device=engine_device)
             translated = nllb.translate(
                 engine,
                 [part.text for part in parts],
@@ -322,26 +337,31 @@ def run(
     subs.write_cues(cues, destination)
     if draft:
         draft_path = video.with_suffix(f".{language}.draft.srt")
-        subs.write(transcript.segments, draft_path)
+        subs.write(prepared.transcript.segments, draft_path)
+
+    _gpu_notes(prepared.loaded, engine)
 
     fast = sum(1 for cue in cues if cue.too_fast)
-    engine_note = ""
-    if target.code != language:
-        engine_note = f" · перевод {loaded.device}"
+    notes = []
+    if prepared.transcript_cached:
+        notes.append("транскрипт из кеша")
+    if engine is not None:
+        notes.append(f"перевод {engine.device}")
+    tail = f" · {' · '.join(notes)}" if notes else ""
 
     console.print(
         f"[bold]{video.name}[/bold] -> [bold]{destination.name}[/bold]"
     )
     console.print(
         f"  {langs.name(language)} ({language}) -> {target.name} ({target.code}): "
-        f"{len(parts)} предложений, {len(cues)} реплик{engine_note}"
+        f"{len(parts)} предложений, {len(cues)} реплик{tail}"
     )
     if fast:
         console.print(
             f"  [yellow]{fast} реплик быстрее {cues_mod.CPS_SOFT:.0f} симв/с — "
             "придётся ставить паузу[/yellow]"
         )
-    if vad_threshold < vad.THRESHOLDS[0]:
+    if prepared.vad_threshold < vad.THRESHOLDS[0]:
         console.print(
             "  [yellow]речь поверх музыки или шума: текст и таймкоды могут быть грубее обычного[/yellow]"
         )

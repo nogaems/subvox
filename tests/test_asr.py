@@ -150,6 +150,45 @@ def test_to_dict_rounds_and_includes_words() -> None:
     assert data["segments"][0]["start"] == 1.0
 
 
+def test_dict_roundtrip_preserves_transcript() -> None:
+    """Кеш обязан возвращать ровно то, что положили: тайминги до слов."""
+    raws = [
+        segment("первая реплика", 0.5, 2.0),
+        segment("вторая реплика", 2.5, 4.0),
+    ]
+    result = asr.transcribe(FakeModel(raws), np.zeros(100, np.float32), language="ru")
+    restored = asr.from_dict(asr.to_dict(result))
+
+    assert restored.language == result.language
+    assert restored.duration == result.duration
+    assert restored.dropped_segments == result.dropped_segments
+    assert len(restored.segments) == len(result.segments)
+    assert restored.segments[1].start == pytest.approx(result.segments[1].start)
+    assert [w.text for w in restored.segments[0].words] == [
+        w.text for w in result.segments[0].words
+    ]
+    assert restored.words == result.words
+
+
+def test_from_dict_rejects_garbage() -> None:
+    with pytest.raises((KeyError, TypeError, ValueError)):
+        asr.from_dict({"segments": "не сегменты"})
+
+
+def test_from_dict_rejects_empty() -> None:
+    """Пустой транскрипт в кеше — битая запись, а не «нет речи»."""
+    with pytest.raises(ValueError):
+        asr.from_dict(
+            {
+                "language": "ru",
+                "duration": 10.0,
+                "segments": [],
+                "dropped_segments": 0,
+                "duplicated_segments": 0,
+            }
+        )
+
+
 def test_draft_srt_is_readable_by_pysubs2(tmp_path) -> None:
     raws = [
         segment("первая реплика", 0.5, 2.0),
