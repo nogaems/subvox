@@ -70,6 +70,31 @@ NoCache = Annotated[
     typer.Option("--no-cache", help="Посчитать заново, не читая и не записывая кеш прогона."),
 ]
 
+SubsFormat = Annotated[
+    str | None,
+    typer.Option(
+        "--format",
+        help="Формат субтитров: srt (по умолчанию) или vtt — для браузеров. "
+        "Действует на имя по умолчанию; с --out формат определяется его расширением.",
+    ),
+]
+
+
+def _check_out(out: Path | None, fmt: str | None) -> None:
+    """Ранний разбор --out: до моделей, а не после минут транскрипции."""
+    if out is None:
+        return
+    actual = subs.format_of(out)
+    if fmt is not None and fmt != actual:
+        raise ValueError(f"--out указывает на .{actual}, а --format требует {fmt}")
+
+
+def _dest(video: Path, base: str, out: Path | None, fmt: str | None) -> Path:
+    """Куда писать: явный --out или имя по умолчанию video.<base>.<формат>."""
+    if out is not None:
+        return out
+    return video.with_suffix(f".{base}.{fmt or 'srt'}")
+
 
 @app.command()
 def detect(
@@ -185,13 +210,15 @@ def transcribe(
     ] = 0,
     out: Annotated[
         Path | None,
-        typer.Option("--out", help="Куда писать .srt. По умолчанию video.<язык>.srt."),
+        typer.Option("--out", help="Куда писать субтитры (.srt/.vtt). По умолчанию video.<язык>.<формат>."),
     ] = None,
+    fmt: SubsFormat = None,
     no_cache: NoCache = False,
     as_json: Annotated[bool, typer.Option("--json", help="Машинный вывод.")] = False,
 ) -> None:
     """Распознать речь и записать черновой SRT на языке оригинала."""
     try:
+        _check_out(out, fmt)
         prepared = pipeline.prepare(
             video,
             track=track,
@@ -211,7 +238,7 @@ def transcribe(
         _fail(exc)
 
     transcript = prepared.transcript
-    destination = out or video.with_suffix(f".{prepared.language}.srt")
+    destination = _dest(video, prepared.language, out, fmt)
     _gpu_notes(prepared.loaded)
 
     if as_json:
@@ -271,8 +298,9 @@ def run(
     ] = 0,
     out: Annotated[
         Path | None,
-        typer.Option("--out", help="Куда писать .srt. По умолчанию video.<язык>.srt."),
+        typer.Option("--out", help="Куда писать субтитры (.srt/.vtt). По умолчанию video.<язык>.<формат>."),
     ] = None,
+    fmt: SubsFormat = None,
     draft: Annotated[
         bool,
         typer.Option("--draft", help="Дополнительно сохранить черновик на языке оригинала."),
@@ -287,6 +315,7 @@ def run(
                 f"на {target.name} ({target.code}) переводить нечем: NLLB его не поддерживает"
             )
 
+        _check_out(out, fmt)
         prepared = pipeline.prepare(
             video,
             track=track,
@@ -333,10 +362,10 @@ def run(
     ]
     cues = cues_mod.build(entries)
 
-    destination = out or video.with_suffix(f".{target.code}.srt")
+    destination = _dest(video, target.code, out, fmt)
     subs.write_cues(cues, destination)
     if draft:
-        draft_path = video.with_suffix(f".{language}.draft.srt")
+        draft_path = _dest(video, f"{language}.draft", None, fmt)
         subs.write(prepared.transcript.segments, draft_path)
 
     _gpu_notes(prepared.loaded, engine)
