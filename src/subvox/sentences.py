@@ -27,6 +27,14 @@ PAUSE_SECONDS = 1.2
 TERMINATORS = re.compile(r"[.?!…:;]")
 """Знаки, заканчивающие слово."""
 
+SPLIT_EPSILON = 0.05
+"""Зазоры, различающиеся меньше чем на это, считаются равными.
+
+Whisper часто выдаёт слова встык, без пауз: тогда «самый большой зазор»
+есть у всех границ сразу, и выбирать надо не первую, а ближайшую к
+середине — иначе длинная фраза рассыпается на однословные предложения.
+"""
+
 
 class SentenceError(RuntimeError):
     """Из слов не собралось ни одного предложения."""
@@ -54,20 +62,27 @@ def _is_break(word: Word, next_word: Word | None) -> bool:
 
 
 def _cut_long(chunk: list[Word]) -> list[list[Word]]:
-    """Слишком длинный кусок без знаков — режем по самой большой паузе."""
+    """Слишком длинный кусок без знаков — режем по самой большой паузе.
+
+    Если пауз нет вовсе (слова идут встык, зазоры равны), делим по
+    середине: иначе единственный «лучший» зазор — первый, и фраза
+    рассыпается на однословные предложения.
+    """
     if len(" ".join(w.text for w in chunk)) <= MAX_SENTENCE_CHARS:
         return [chunk]
+    if len(chunk) < 2:
+        return [chunk]
 
-    best_gap, best_at = -1.0, len(chunk) - 1
-    for i in range(len(chunk) - 1):
-        gap = chunk[i + 1].start - chunk[i].end
-        if gap > best_gap:
-            best_gap, best_at = gap, i
+    gaps = [chunk[i + 1].start - chunk[i].end for i in range(len(chunk) - 1)]
+    best_gap = max(gaps)
+    middle = (len(chunk) - 1) / 2
+    candidates = [i for i, gap in enumerate(gaps) if gap >= best_gap - SPLIT_EPSILON]
+    best_at = min(candidates, key=lambda i: abs(i - middle))
 
     left, right = chunk[: best_at + 1], chunk[best_at + 1 :]
     if not left or not right:  # паника: режем пополам
-        middle = len(chunk) // 2
-        left, right = chunk[:middle], chunk[middle:]
+        middle_index = len(chunk) // 2
+        left, right = chunk[:middle_index], chunk[middle_index:]
 
     return _cut_long(left) + _cut_long(right)
 
@@ -92,7 +107,10 @@ def sentences(segments: tuple[Segment, ...]) -> list[Sentence]:
     """Собрать слова всех сегментов в предложения с таймингами."""
     words: list[Word] = []
     for segment in segments:
-        words.extend(segment.words)
+        # Whisper иногда отдаёт слово с пустым текстом (на шуме, на границе
+        # сегмента). Ни текста, ни границы предложения в нём нет — и
+        # ``word.text[-1]`` на нём падает.
+        words.extend(word for word in segment.words if word.text)
 
     if not words:
         # Слов с таймкодами не дали (word_timestamps не сработал) —

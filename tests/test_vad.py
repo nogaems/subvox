@@ -69,6 +69,16 @@ def test_silence_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         vad.speech_regions(_audio())
 
 
+def test_click_shorter_than_fallback_floor_is_not_speech(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """0.9 с шума на стандартном пороге — не «редкая речь» (fail-nospeech)."""
+    monkeypatch.setattr(vad, "_find", _fake_finder({0.5: [(10.0, 10.9)]}))
+
+    with pytest.raises(vad.NoSpeech):
+        vad.speech_regions(_audio(seconds=30.0))
+
+
 def test_real_vad_finds_nothing_in_silence() -> None:
     with pytest.raises(vad.NoSpeech):
         vad.speech_regions(np.zeros(3 * 16_000, dtype=np.float32))

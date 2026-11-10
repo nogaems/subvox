@@ -116,21 +116,27 @@ def transcribe(
             duplicated += 1
             continue
 
-        words = tuple(
-            Word(
-                start=word.start,
-                end=word.end,
-                text=word.word.strip(),
-                probability=word.probability,
+        words: list[Word] = []
+        for word in raw.words or []:
+            token = word.word.strip()
+            if not token:
+                # Пустой токен — не слово: текста нет, а ``word.text[-1]``
+                # в сборке предложений на нём падает.
+                continue
+            words.append(
+                Word(
+                    start=word.start,
+                    end=word.end,
+                    text=token,
+                    probability=word.probability,
+                )
             )
-            for word in raw.words or []
-        )
         kept.append(
             Segment(
                 start=max(raw.start, 0.0),
                 end=max(raw.end, raw.start + 0.1),
                 text=text,
-                words=words,
+                words=tuple(words),
                 avg_logprob=raw.avg_logprob,
                 no_speech_prob=raw.no_speech_prob,
             )

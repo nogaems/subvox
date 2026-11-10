@@ -68,6 +68,24 @@ def test_vtt_roundtrip_keeps_timings_and_lines(tmp_path: Path, cue: list[Cue]) -
     assert first.plaintext == "Привет,\nмир"
 
 
+def test_empty_subtitle_is_valid(tmp_path: Path) -> None:
+    """Видео без речи: файл есть, реплик ноль.
+
+    Пустой SRT — это файл из 0 байт (блоков нет); VTT обязан нести
+    заголовок ``WEBVTT``, иначе браузер его не примет.
+    """
+    srt = tmp_path / "empty.srt"
+    vtt = tmp_path / "empty.vtt"
+
+    subs.write_empty(srt)
+    subs.write_empty(vtt)
+
+    assert srt.is_file()
+    assert srt.read_text(encoding="utf-8") == ""
+    assert len(pysubs2.SSAFile.load(str(vtt)).events) == 0
+    assert vtt.read_text(encoding="utf-8").startswith("WEBVTT")
+
+
 def test_draft_segments_write_both_formats(tmp_path: Path) -> None:
     srt = tmp_path / "draft.srt"
     vtt = tmp_path / "draft.vtt"

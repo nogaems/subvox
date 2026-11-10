@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -63,6 +64,18 @@ class Loaded:
     model: Any
     device: str
     fallback_reason: str | None = None
+
+    def release(self) -> None:
+        """Отпустить модель, сохранив сведения о ней.
+
+        Нужно перед загрузкой NLLB: Whisper large-v3 (~3 ГБ VRAM) и
+        переводчик (~1.5 ГБ) в 8 ГБ не уживаются, и перевод падает с
+        OOM, уходя на CPU. После транскрипции сама модель больше не
+        нужна, а ``device``/``fallback_reason`` ещё нужны отчёту —
+        поэтому обнуляется только ``model``.
+        """
+        object.__setattr__(self, "model", None)
+        gc.collect()
 
 
 def _warmup(model: Any, compute_type: str) -> None:

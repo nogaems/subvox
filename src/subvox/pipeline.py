@@ -55,6 +55,7 @@ def _vad_block() -> dict:
     return {
         "thresholds": list(vad.THRESHOLDS),
         "min_speech_seconds": vad.MIN_SPEECH_SECONDS,
+        "min_fallback_seconds": vad.MIN_FALLBACK_SPEECH_SECONDS,
         "window_seconds": vad.WINDOW_SECONDS,
     }
 

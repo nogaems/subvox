@@ -407,16 +407,35 @@ def run(
             if engine_device == "cpu" and device != "cpu":
                 # Whisper упал на cpu после фолбэка — дать переводчику свой шанс.
                 engine_device = "auto"
+            if prepared.loaded is not None:
+                # Whisper больше не нужен: две модели сразу в 8 ГБ VRAM
+                # не уживаются, и переводчик упал бы с OOM, уйдя на CPU.
+                prepared.loaded.release()
             engine = nllb.load(device=engine_device, note=_note)
-            translated = nllb.translate(
+            translated, engine = nllb.translate(
                 engine,
                 [part.text for part in parts],
                 source_lang=langs.flores(language),
                 target_lang=target.flores,
+                note=_note,
             )
+    except vad.NoSpeech as exc:
+        # Речи нет — субтитра нет, но файл пишем: полное покрытие и явное
+        # предупреждение. Текст не выдумывается, тайминги не подгоняются.
+        destination = _dest(video, target.code, out, fmt)
+        subs.write_empty(destination)
+        console.print(
+            f"[bold]{video.name}[/bold] -> [bold]{destination.name}[/bold] "
+            "[dim](пусто)[/dim]"
+        )
+        console.print("  0 предложений, 0 реплик")
+        console.print(f"  [yellow]речи не найдено: {exc}[/yellow]")
+        console.print(
+            "  [yellow]файл записан без реплик — проверьте, что в видео есть речь[/yellow]"
+        )
+        return
     except (
         audio.AudioError,
-        vad.NoSpeech,
         asr.TranscriptionError,
         sentences.SentenceError,
         nllb.TranslationError,
@@ -431,7 +450,7 @@ def run(
         (text, part.start, part.end)
         for text, part in zip(translated, parts, strict=True)
     ]
-    cues = cues_mod.build(entries)
+    cues, skipped = cues_mod.build(entries)
 
     destination = _dest(video, target.code, out, fmt)
     subs.write_cues(cues, destination)
@@ -460,6 +479,11 @@ def run(
         console.print(
             f"  [yellow]{fast} реплик быстрее {cues_mod.CPS_SOFT:.0f} симв/с — "
             "придётся ставить паузу[/yellow]"
+        )
+    if skipped:
+        console.print(
+            f"  [yellow]{skipped} реплик пропущено: неразрывный токен длиннее "
+            "двух строк — вероятно, бред распознавания[/yellow]"
         )
     if prepared.vad_threshold < vad.THRESHOLDS[0]:
         console.print(

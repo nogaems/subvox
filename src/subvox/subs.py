@@ -61,3 +61,13 @@ def write_cues(cues: list[Cue], path: Path) -> Path:
     rows = [(cue.text, cue.start, cue.end) for cue in cues]
     _events(rows).save(str(path))
     return path
+
+
+def write_empty(path: Path) -> Path:
+    """Записать пустой файл: речи нет, реплик нет, но покрытие полное.
+
+    Ошибка «речи не найдено» остаётся видимой в CLI; пустой файл — не
+    подстановка текста, а честный результат для видео без речи.
+    """
+    _events([]).save(str(path))
+    return path

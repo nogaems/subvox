@@ -49,6 +49,7 @@ class Engine:
     tokenizer: Any
     vocab: dict[str, int]
     device: str
+    model_id: str = DEFAULT_MODEL
     fallback_reason: str | None = None
 
 
@@ -124,6 +125,7 @@ def load(
             tokenizer=tokenizer,
             vocab=vocab,
             device=dev,
+            model_id=model_id,
             fallback_reason=errors[-1] if errors else None,
         )
 
@@ -140,26 +142,52 @@ def _tokens(text: str, tokenizer: Any, lang: str) -> list[str]:
     return pieces + ["</s>", lang]
 
 
-def translate(
-    engine: Engine,
-    texts: list[str],
-    source_lang: str,
-    target_lang: str,
-) -> list[str]:
-    """Перевести список предложений с FLORES-кода на FLORES-код."""
-    if not texts:
-        return []
-
-    sources = [_tokens(text, engine.tokenizer, source_lang) for text in texts]
-    prefixes = [[target_lang]] * len(sources)
-
-    results = engine.translator.translate_batch(
+def _batch(engine: Engine, sources: list[list[str]], prefixes: list[list[str]]) -> Any:
+    """Один прогон translate_batch — общий для GPU и CPU."""
+    return engine.translator.translate_batch(
         sources,
         target_prefix=prefixes,
         beam_size=BEAM_SIZE,
         max_batch_size=BATCH_TOKENS,
         batch_type="tokens",
     )
+
+
+def translate(
+    engine: Engine,
+    texts: list[str],
+    source_lang: str,
+    target_lang: str,
+    note: Callable[[str], None] | None = None,
+) -> tuple[list[str], Engine]:
+    """Перевести список предложений с FLORES-кода на FLORES-код.
+
+    Возвращает перевод и движок, который реально работал: после
+    фолбэка это CPU-движок, и вызывающий обязан печатать именно его.
+
+    Если CUDA падает уже во время перевода (бывает транзиентный
+    ``cudaErrorInvalidDevice``, который не ловится пробным прогоном при
+    загрузке), честно перезагружаемся на CPU и продолжаем: лучше
+    медленный перевод, чем упавший прогон после готового транскрипта.
+    """
+    if not texts:
+        return [], engine
+
+    sources = [_tokens(text, engine.tokenizer, source_lang) for text in texts]
+    prefixes = [[target_lang]] * len(sources)
+
+    try:
+        results = _batch(engine, sources, prefixes)
+    except RuntimeError as exc:
+        if engine.device == "cpu":
+            raise TranslationError(f"перевод на cpu упал: {exc}") from exc
+        if note is not None:
+            note(f"перевод на {engine.device} упал ({exc}); перехожу на cpu")
+        engine = load(engine.model_id, device="cpu", note=note)
+        try:
+            results = _batch(engine, sources, prefixes)
+        except RuntimeError as exc2:
+            raise TranslationError(f"перевод на cpu упал: {exc2}") from exc2
 
     translations: list[str] = []
     for result in results:
@@ -178,4 +206,4 @@ def translate(
             )
         translations.append(text.strip())
 
-    return translations
+    return translations, engine

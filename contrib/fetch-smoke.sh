@@ -4,4 +4,4 @@
 # Windows: powershell -ExecutionPolicy Bypass -File contrib/fetch-smoke.ps1
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
-exec uv run --project "$here/.." python "$here/fetch_smoke.py"
+exec uv run --project "$here/.." python "$here/fetch_smoke.py" "$@"

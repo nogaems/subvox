@@ -64,6 +64,16 @@ def test_words_are_kept_with_timestamps() -> None:
     assert result.words == 2
 
 
+def test_empty_word_is_dropped() -> None:
+    """Пустой токен Whisper — не слово: текста нет, а сборка предложений падает."""
+    raw = segment(
+        " привет", 0.0, 1.0, words=[word(" привет", 0.0, 0.5), word(" ", 0.5, 0.6)]
+    )
+    result = asr.transcribe(FakeModel([raw]), np.zeros(100, np.float32), language="ru")
+
+    assert [w.text for w in result.segments[0].words] == ["привет"]
+
+
 def test_empty_text_is_dropped() -> None:
     raws = [segment(" ", 0.0, 1.0), segment("жизнь", 1.0, 2.0)]
     result = asr.transcribe(FakeModel(raws), np.zeros(100, np.float32), language="ru")

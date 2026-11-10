@@ -75,6 +75,27 @@ def test_overlong_run_without_breaks_is_cut() -> None:
 
     assert len(parts) > 1
     assert all(len(p.text) <= sentences.MAX_SENTENCE_CHARS + 10 for p in parts)
+    # Регресс: при равных зазорах нельзя резать по первому слову —
+    # иначе получается лестница однословных «предложений».
+    assert all(len(p.words) > 1 for p in parts)
+
+
+def test_overlong_run_with_zero_gaps_splits_balanced() -> None:
+    """Слова встык (зазор ровно 0) делятся пополам, а не по одному."""
+    words = tuple(
+        Word(start=i * 0.3, end=(i + 1) * 0.3, text="слово", probability=1.0)
+        for i in range(120)
+    )
+    seg = Segment(
+        start=0.0, end=36.0, text="слово " * 120, words=words,
+        avg_logprob=-0.3, no_speech_prob=0.05,
+    )
+    parts = sentences.sentences((seg,))
+
+    assert len(parts) > 1
+    assert all(len(p.words) > 1 for p in parts)
+    assert sum(len(p.words) for p in parts) == 120
+    assert len(parts[0].words) >= 20  # не лесенка по одному слову
 
 
 def test_missing_word_timestamps_fall_back_to_segments() -> None:
@@ -85,6 +106,22 @@ def test_missing_word_timestamps_fall_back_to_segments() -> None:
     assert len(parts) == 1
     assert parts[0].text == "просто фраза"
     assert parts[0].start == pytest.approx(1.0)
+
+
+def test_empty_word_does_not_crash_sentences() -> None:
+    """Пустое слово Whisper приходит на шуме — границей предложения оно не бывает."""
+    words = (
+        Word(start=0.0, end=0.4, text="привет", probability=1.0),
+        Word(start=0.4, end=0.5, text="", probability=0.66),
+        Word(start=0.5, end=1.0, text="мир.", probability=1.0),
+    )
+    seg = Segment(
+        start=0.0, end=1.0, text="привет мир.", words=words,
+        avg_logprob=-0.3, no_speech_prob=0.05,
+    )
+    parts = sentences.sentences((seg,))
+
+    assert [p.text for p in parts] == ["привет мир."]
 
 
 def test_empty_transcript_is_an_error() -> None:
