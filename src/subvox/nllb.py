@@ -15,6 +15,7 @@ int8 на CPU, тот же venv с cuDNN. Ни torch, ни transformers — то
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -51,17 +52,49 @@ class Engine:
     fallback_reason: str | None = None
 
 
-def load(model_id: str = DEFAULT_MODEL, device: str = "auto") -> Engine:
+NLLB_GBYTES = 1.5
+"""Приблизительный размер int8-конверсии для анонса скачивания."""
+
+
+def _prefetch_nllb(
+    model_id: str, note: Callable[[str], None] | None
+) -> str:
+    """Путь к модели в кеше; при промахе — скачивание с анонсом и барами."""
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    cache = str(paths.models_dir())
+    try:
+        return snapshot_download(model_id, cache_dir=cache, local_files_only=True)
+    except LocalEntryNotFoundError:
+        pass
+
+    if note is not None:
+        note(f"модель NLLB (~{NLLB_GBYTES:.1f} ГБ) качаю в {cache}")
+    return snapshot_download(model_id, cache_dir=cache)
+
+
+def load(
+    model_id: str = DEFAULT_MODEL,
+    device: str = "auto",
+    note: Callable[[str], None] | None = None,
+) -> Engine:
     """Загрузить NLLB с фолбэком CUDA -> CPU, как у Whisper."""
     import ctranslate2
     import tokenizers
-    from huggingface_hub import snapshot_download
 
     from subvox.cuda import preload as _preload_cuda
 
     _preload_cuda()
 
-    path = snapshot_download(model_id, cache_dir=str(paths.models_dir()))
+    try:
+        path = _prefetch_nllb(model_id, note)
+    except TranslationError:
+        raise
+    except Exception as exc:
+        raise TranslationError(
+            f"модель NLLB не скачалась в {paths.models_dir()}: {exc}"
+        ) from exc
     tokenizer = tokenizers.Tokenizer.from_file(
         str(Path(path) / "tokenizer.json")
     )

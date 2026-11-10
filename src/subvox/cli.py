@@ -8,6 +8,7 @@ from typing import Annotated, Any
 
 import typer
 from rich.console import Console
+from rich.table import Table
 
 from subvox import __version__, asr, audio, langs, nllb, pipeline, sentences, subs, vad
 from subvox import cues as cues_mod
@@ -65,6 +66,11 @@ def _gpu_notes(loaded: pipeline.Loaded | None, engine: nllb.Engine | None = None
         )
 
 
+def _note(message: str) -> None:
+    """Анонс долгих фоновых действий (скачивание модели) — в stderr."""
+    stderr.print(f"[yellow]{message}[/yellow]")
+
+
 NoCache = Annotated[
     bool,
     typer.Option("--no-cache", help="Посчитать заново, не читая и не записывая кеш прогона."),
@@ -96,6 +102,46 @@ def _dest(video: Path, base: str, out: Path | None, fmt: str | None) -> Path:
     return video.with_suffix(f".{base}.{fmt or 'srt'}")
 
 
+@app.command("list-langs")
+def list_langs(
+    as_json: Annotated[bool, typer.Option("--json", help="Машинный вывод.")] = False,
+) -> None:
+    """Все языки: код для --from/--to, название, переводимость NLLB."""
+    languages = sorted(langs.LANGUAGES.values(), key=lambda lang: lang.name.lower())
+
+    if as_json:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "code": lang.code,
+                        "name": lang.name,
+                        "translatable": lang.flores is not None,
+                    }
+                    for lang in languages
+                ],
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+
+    table = Table(title=f"Языки Whisper · {len(languages)}")
+    table.add_column("код", style="bold")
+    table.add_column("язык")
+    table.add_column("перевод NLLB", justify="center")
+    for lang in languages:
+        table.add_row(lang.code, lang.name, "да" if lang.flores else "[dim]—[/dim]")
+    console.print(table)
+
+    silent = ", ".join(langs.untranslatable())
+    aliases = ", ".join(f"{alias}={target}" for alias, target in langs.ALIASES.items())
+    console.print(
+        f"[dim]без перевода NLLB (только транскрипция): {silent}.[/dim]"
+    )
+    console.print(f"[dim]алиасы тоже принимаются: {aliases}.[/dim]")
+
+
 @app.command()
 def detect(
     video: Annotated[
@@ -115,7 +161,11 @@ def detect(
     no_cache: NoCache = False,
     as_json: Annotated[bool, typer.Option("--json", help="Машинный вывод.")] = False,
 ) -> None:
-    """Определить язык речи в видео и ничего больше не делать."""
+    """Определить язык речи в видео и ничего больше не делать.
+
+    Примеры: subvox detect film.mkv
+             subvox detect film.mkv --json
+    """
     try:
         stream = audio.probe(video).stream(track)
         result = pipeline.detect_language(
@@ -125,6 +175,7 @@ def detect(
             device=device,
             windows=windows,
             use_cache=not no_cache,
+            note=_note,
         )
     except (audio.AudioError, vad.NoSpeech, ModelError, ValueError) as exc:
         _fail(exc)
@@ -201,7 +252,10 @@ def transcribe(
     ],
     source: Annotated[
         str | None,
-        typer.Option("--from", help="Язык оригинала. По умолчанию определяется."),
+        typer.Option(
+            "--from",
+            help="Язык оригинала. По умолчанию определяется. Полный список: subvox list-langs.",
+        ),
     ] = None,
     model: Annotated[str, typer.Option("--model", "-m", help="Модель Whisper.")] = DEFAULT_WHISPER,
     device: Annotated[str, typer.Option("--device", help="auto, cuda или cpu.")] = "auto",
@@ -216,7 +270,11 @@ def transcribe(
     no_cache: NoCache = False,
     as_json: Annotated[bool, typer.Option("--json", help="Машинный вывод.")] = False,
 ) -> None:
-    """Распознать речь и записать черновой SRT на языке оригинала."""
+    """Распознать речь и записать черновой SRT на языке оригинала.
+
+    Примеры: subvox transcribe film.mkv
+             subvox transcribe film.mkv --from en --out draft.vtt
+    """
     try:
         _check_out(out, fmt)
         prepared = pipeline.prepare(
@@ -226,6 +284,7 @@ def transcribe(
             model=model,
             device=device,
             use_cache=not no_cache,
+            note=_note,
         )
     except (
         audio.AudioError,
@@ -285,11 +344,17 @@ def run(
     ],
     to: Annotated[
         str,
-        typer.Option("--to", help="Целевой язык, ISO-639-1: ru, en, sv..."),
+        typer.Option(
+            "--to",
+            help="Целевой язык, ISO-639-1: ru, en, sv... Полный список: subvox list-langs.",
+        ),
     ],
     source: Annotated[
         str | None,
-        typer.Option("--from", help="Язык оригинала. По умолчанию определяется."),
+        typer.Option(
+            "--from",
+            help="Язык оригинала. По умолчанию определяется. Полный список: subvox list-langs.",
+        ),
     ] = None,
     model: Annotated[str, typer.Option("--model", "-m", help="Модель Whisper.")] = DEFAULT_WHISPER,
     device: Annotated[str, typer.Option("--device", help="auto, cuda или cpu.")] = "auto",
@@ -307,7 +372,12 @@ def run(
     ] = False,
     no_cache: NoCache = False,
 ) -> None:
-    """Полный пайплайн: распознать, перевести, записать субтитры."""
+    """Полный пайплайн: распознать, перевести, записать субтитры.
+
+    Примеры: subvox run film.mkv --to ru
+             subvox run film.mkv --to en --from ru --draft
+             subvox run film.mkv --to en --format vtt
+    """
     try:
         target = langs.require(to)
         if not langs.translatable(target.code):
@@ -324,6 +394,7 @@ def run(
             device=device,
             use_cache=not no_cache,
             require_translatable=True,
+            note=_note,
         )
         language = prepared.language
         parts = sentences.sentences(prepared.transcript.segments)
@@ -336,7 +407,7 @@ def run(
             if engine_device == "cpu" and device != "cpu":
                 # Whisper упал на cpu после фолбэка — дать переводчику свой шанс.
                 engine_device = "auto"
-            engine = nllb.load(device=engine_device)
+            engine = nllb.load(device=engine_device, note=_note)
             translated = nllb.translate(
                 engine,
                 [part.text for part in parts],

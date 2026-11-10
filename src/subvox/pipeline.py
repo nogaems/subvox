@@ -182,6 +182,7 @@ def detect_language(
     device: str = "auto",
     windows: int = 6,
     use_cache: bool = True,
+    note: Callable[[str], None] | None = None,
 ) -> LanguageResult:
     """Определить язык речи, дорожа результатом в рабочем каталоге."""
     directory = _work_dir(video)
@@ -192,7 +193,7 @@ def detect_language(
         windows=windows,
         use_cache=use_cache,
         audio_samples=lambda: audio.extract(video, audio.probe(video).stream(track)),
-        whisper_once=lambda: load_whisper(model, device),
+        whisper_once=lambda: load_whisper(model, device, note=note),
     )
     return LanguageResult(detection=detection, loaded=loaded, cached=cached)
 
@@ -208,6 +209,7 @@ def prepare(
     beam_size: int = asr.BEAM_SIZE,
     use_cache: bool = True,
     require_translatable: bool = False,
+    note: Callable[[str], None] | None = None,
 ) -> Prepared:
     """Язык и транскрипт, с кешем и ленивым аудио.
 
@@ -232,7 +234,7 @@ def prepare(
     def whisper_once() -> Loaded:
         nonlocal loaded
         if loaded is None:
-            loaded = load_whisper(model, device)
+            loaded = load_whisper(model, device, note=note)
         return loaded
 
     detection: lid.Detection | None = None

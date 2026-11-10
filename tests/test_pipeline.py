@@ -95,8 +95,11 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         counts["extract"] += 1
         return SAMPLES
 
-    def fake_load_whisper(model: str, device: str) -> Loaded:
+    def fake_load_whisper(
+        model: str, device: str, note: object = None
+    ) -> Loaded:
         counts["whisper"] += 1
+        counts["note"] = note
         return Loaded()
 
     def fake_lid_detect(model: object, samples: np.ndarray, **kwargs: Any) -> lid.Detection:
@@ -244,6 +247,15 @@ def test_untranslatable_detected_language_stops_before_transcription(
 
     assert calls["transcribe"] == 0  # транскрипция не стартовала
     assert calls["whisper"] == 1  # язык всё же потребовал модель
+
+
+def test_note_is_forwarded_to_model_loader(video: Path, calls: dict[str, Any]) -> None:
+    """Анонс скачивания — забота CLI: пайплайн лишь пробрасывает колбэк."""
+    seen: list[str] = []
+    callback = seen.append  # один объект bound method, иначе is не сравнить
+    pipeline.prepare(video, note=callback)
+
+    assert calls["note"] is callback
 
 
 def test_unavailable_store_does_not_break_run(
