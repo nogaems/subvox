@@ -15,18 +15,19 @@ macOS `~/Library/Application Support/subvox/smoke`; `SUBVOX_HOME`
 переопределяет. Имена файлов — по слоту (`en-ted.mkv`), не по названию
 видео: стабильные, читаемые, не зависят от переименования на YouTube.
 
-Скачивание — идемпотентным скриптом (Linux/macOS):
+Скачивание — идемпотентным скриптом, мультиплатформенным:
 
 ```sh
-contrib/fetch-smoke.sh
+contrib/fetch-smoke.sh        # Linux/macOS
 ```
-
-На Windows — та же команда вручную для каждого слота (uvx → uvx.exe
-после установки; шаблон):
 
 ```powershell
-uvx yt-dlp -f "bv*[height<=480]+ba/b[height<=480]/b" --merge-output-format mkv --no-overwrites -o "$env:LOCALAPPDATA\subvox\smoke\<слот>.%(ext)s" <ссылка>
+powershell -ExecutionPolicy Bypass -File contrib\fetch-smoke.ps1   # Windows
 ```
+
+Обе обёртки — тонкие: сам скрипт `contrib/fetch_smoke.py` один
+на все платформы. Зависимости: uv и ffmpeg на хосте (yt-dlp
+подтягивается свежим через uvx — YouTube-брейкеры чинятся релизами).
 
 Потолок 480p осознан: пайплайн ест только аудиодорожку, видео нужно
 для проверки синхронности субтитров глазами в mpv — этого хватает.
