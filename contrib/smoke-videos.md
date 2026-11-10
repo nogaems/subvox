@@ -70,9 +70,18 @@ powershell -ExecutionPolicy Bypass -File contrib\fetch-smoke.ps1   # Windows
 
 ## После скачивания
 
+Пути к корзине — не хардкод, а `subvox.paths.smoke_dir()`: точное место
+зависит от ОС (см. `paths.py`). Узнать его на своей машине:
+
 ```sh
-uv run subvox detect  ~/.local/share/subvox/smoke/ja-tokyo.*
-uv run subvox run     ~/.local/share/subvox/smoke/en-ted.* --to ru
+uv run python -c "from subvox import paths; print(paths.smoke_dir())"
+```
+
+Прогон (шаблон — подставь свой путь):
+
+```sh
+uv run subvox detect  <путь к корзине>/ja-tokyo.*
+uv run subvox run     <путь к корзине>/en-ted.* --to ru
 ```
 
 Записи кеша лягут в `work/` по хешу содержимого — корзина и её

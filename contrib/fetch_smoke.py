@@ -45,13 +45,17 @@ def slots() -> list[tuple[str, str]]:
     return found
 
 
-def ytdlp() -> str:
-    """Команда запуска yt-dlp: uvx на Unix, uvx.exe на Windows."""
+def ytdlp() -> list[str]:
+    """Команда запуска yt-dlp: [uvx, yt-dlp]. На Windows uvx.exe.
+
+    yt-dlp не ставится в проект: свежий выпуск подтягивается uvx'ом —
+    YouTube-брейкеры чинятся релизами, свежесть важнее стабильности.
+    """
     name = "uvx.exe" if sys.platform == "win32" else "uvx"
     path = shutil.which(name) or shutil.which("uvx")
     if path is None:
         raise SystemExit("нет uv — установи: https://docs.astral.sh/uv/getting-started/")
-    return path
+    return [path, "yt-dlp"]
 
 
 def fetch(slot: str, url: str, directory: Path) -> bool:
@@ -62,7 +66,8 @@ def fetch(slot: str, url: str, directory: Path) -> bool:
 
     print(f"  качаю:  {slot}")
     result = subprocess.run(  # noqa: PLW1510 — код возврата разбираем ниже сами
-        [
+        ytdlp()
+        + [
             ytdlp(),
             "-f",
             "bv*[height<=480]+ba/b[height<=480]/b",
