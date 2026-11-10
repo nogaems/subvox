@@ -66,6 +66,7 @@ def test_layout_split(monkeypatch: pytest.MonkeyPatch) -> None:
     assert paths.models_dir() == Path("/base/models")
     assert paths.work_dir() == Path("/base/work")
     assert paths.cache_dir() == Path("/base/cache")
+    assert paths.smoke_dir() == Path("/base/smoke")
 
 
 def test_cache_linux_default(monkeypatch: pytest.MonkeyPatch) -> None:
