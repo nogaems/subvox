@@ -17,7 +17,7 @@ cuda-downloads); без него subvox честно работает на CPU.
 
 param(
     [string]$FromSource = "",
-    [string]$Repo = "owner/subvox"
+    [string]$Repo = "nogaems/subvox"
 )
 
 $ErrorActionPreference = "Stop"
@@ -97,7 +97,7 @@ if ($FromSource -ne "") {
     try {
         Invoke-WebRequest -Uri $url -OutFile $wheel
     } catch {
-        Fail "не удалось скачать wheel ($url). Релизы ещё не опубликованы? Укажите -Repo owner/subvox или -FromSource <каталог>"
+        Fail "не удалось скачать wheel ($url). Релизы ещё не опубликованы? Укажите -Repo nogaems/subvox или -FromSource <каталог>"
     }
     Say "uv tool install subvox"
     & $uv tool install --python 3.12 $wheel

@@ -8,14 +8,14 @@
 #
 # Запуск:
 #   ./install.sh                            # из GitHub Releases (SUBVOX_REPO)
-#   SUBVOX_REPO=owner/subvox ./install.sh   # то же, с указанием репозитория
+#   SUBVOX_REPO=nogaems/subvox ./install.sh   # то же, с указанием репозитория
 #   ./install.sh --from-source ~/subvox     # из локальной копии (разработка)
 #   ./install.sh --gpu                      # + CUDA-библиотеки в окружении
 #
 # Всё per-user: системные пакеты — только ffmpeg, и только если его нет.
 set -eu
 
-repo="${SUBVOX_REPO:-owner/subvox}"
+repo="${SUBVOX_REPO:-nogaems/subvox}"
 wheel_url="https://github.com/${repo}/releases/latest/download/subvox.whl"
 from_source=""
 gpu=""
@@ -91,7 +91,7 @@ else
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
     curl -LsSf -o "$tmp/subvox.whl" "$wheel_url" || fail "не удалось скачать wheel.
-Релизы ещё не опубликованы? Укажите репозиторий: SUBVOX_REPO=owner/subvox ./install.sh
+Релизы ещё не опубликованы? Укажите репозиторий: SUBVOX_REPO=nogaems/subvox ./install.sh
 Или поставьте из исходника: ./install.sh --from-source <каталог>"
     spec="$tmp/subvox.whl"
     [ -n "$gpu" ] && spec="$spec[gpu]"

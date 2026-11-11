@@ -32,6 +32,9 @@ dev = [
 [project.scripts]
 subvox = "subvox.cli:main"
 
+[project.urls]
+Repository = "https://github.com/nogaems/subvox"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
