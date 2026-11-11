@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Offline subtitles for videos in languages you don't speak"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-license = { text = "MIT" }
+license = { text = "WTFPL" }
 dependencies = [
     "typer>=0.12",
     "rich>=13.7",
